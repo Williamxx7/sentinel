@@ -1,0 +1,157 @@
+---
+import '../styles/global.css';
+
+interface NavItem {
+	key: string;
+	href: string;
+	label: string;
+	icon: string;
+}
+
+interface Props {
+	title: string;
+	active?: string;
+}
+
+const { title, active } = Astro.props;
+const user = Astro.locals.user;
+const lastScan = new Date().toLocaleString('da-DK', {
+	day: '2-digit',
+	month: '2-digit',
+	hour: '2-digit',
+	minute: '2-digit',
+});
+
+// Minimal inline icons (24x24, stroke-based) keep the app dependency-free.
+const ICONS: Record<string, string> = {
+	dashboard: 'M3 13h8V3H3v10Zm10 8h8v-6h-8v6ZM3 21h8v-6H3v6Zm10-10h8V3h-8v10Z',
+	assets: 'M12 3 3 7.5 12 12l9-4.5L12 3ZM3 16.5 12 21l9-4.5M3 12l9 4.5L21 12',
+	uptime: 'M3 12h4l2.5-7 4 14 2.5-7H21',
+	devices: 'M5 3h14v7H5zM5 14h14v7H5zM9 6.5h.01M9 17.5h.01',
+	incidents: 'M12 9v4m0 4h.01M10.29 3.86 2.6 17a2 2 0 0 0 1.71 3h15.38a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z',
+	breach: 'M12 2 3 6v6c0 5 3.8 9.4 9 10 5.2-.6 9-5 9-10V6l-9-4ZM9 12l2 2 4-4',
+	notes: 'M5 3h11l3 3v15H5V3Zm3 7h8M8 14h8M8 17h5',
+	settings: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z',
+	vulns: 'M12 8v8m-4-4h8M9 3v2m6-2v2M5 7l1.5 1.5M19 7l-1.5 1.5M5 17l1.5-1.5M19 17l-1.5-1.5M6 21l2-2m10 0 2 2',
+};
+
+const NAV: NavItem[] = [
+	{ key: 'dashboard', href: '/dashboard', label: 'Overblik', icon: ICONS.dashboard },
+	{ key: 'assets', href: '/assets', label: 'Aktiver', icon: ICONS.assets },
+	{ key: 'uptime', href: '/uptime', label: 'Uptime', icon: ICONS.uptime },
+	{ key: 'devices', href: '/devices', label: 'Enheder', icon: ICONS.devices },
+	{ key: 'vulns', href: '/vulnerabilities', label: 'Sårbarheder', icon: ICONS.vulns },
+	{ key: 'incidents', href: '/incidents', label: 'Hændelser', icon: ICONS.incidents },
+	{ key: 'breach', href: '/breach', label: 'Lækage-tjek', icon: ICONS.breach },
+	{ key: 'notes', href: '/notes', label: 'Noter', icon: ICONS.notes },
+	{ key: 'settings', href: '/settings', label: 'Indstillinger', icon: ICONS.settings },
+];
+---
+
+<!doctype html>
+<html lang="da">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		<meta name="robots" content="noindex, nofollow" />
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+		<link
+			rel="stylesheet"
+			href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+		/>
+		<title>{title} · Sentinel</title>
+	</head>
+	<body>
+		<div class="flex min-h-screen">
+			<!-- Sidebar -->
+			<aside
+				class="hidden w-60 shrink-0 flex-col border-r border-line bg-surface md:flex"
+			>
+				<div class="flex h-14 items-center gap-2 border-b border-line px-5">
+					<span class="inline-block h-2.5 w-2.5 rounded-full bg-accent"></span>
+					<span class="font-mono text-sm tracking-wide text-ink">Sentinel</span>
+				</div>
+				<nav class="flex-1 space-y-0.5 p-3">
+					{
+						NAV.map((item) => (
+							<a
+								href={item.href}
+								class:list={[
+									'relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
+									active === item.key
+										? 'bg-elevated text-ink'
+										: 'text-ink-soft hover:text-ink',
+								]}
+							>
+								{active === item.key && (
+									<span class="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r bg-accent" />
+								)}
+								<svg
+									viewBox="0 0 24 24"
+									class="h-5 w-5 shrink-0"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="1.6"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								>
+									<path d={item.icon} />
+								</svg>
+								{item.label}
+							</a>
+						))
+					}
+				</nav>
+				<div class="border-t border-line p-3">
+					<form method="post" action="/api/auth/logout">
+						<button type="submit" class="btn btn-secondary w-full">Log ud</button>
+					</form>
+				</div>
+			</aside>
+
+			<!-- Main column -->
+			<div class="flex min-w-0 flex-1 flex-col">
+				<header
+					class="sticky top-0 z-10 flex h-14 items-center justify-between gap-4 border-b border-line bg-canvas/90 px-5 backdrop-blur"
+				>
+					<div class="flex items-baseline gap-3">
+						<h1 class="text-base font-semibold text-ink">{title}</h1>
+						<span class="hidden font-mono text-xs text-ink-muted sm:inline">/ {active ?? 'root'}</span>
+					</div>
+					<div class="flex items-center gap-4">
+						<span class="hidden font-mono text-xs text-ink-muted sm:inline">
+							{lastScan}
+						</span>
+						{user && (
+							<span class="flex h-7 items-center rounded-full border border-line bg-surface px-3 font-mono text-xs text-ink-soft">
+								{user.username}
+							</span>
+						)}
+					</div>
+				</header>
+				<main class="mx-auto w-full max-w-6xl flex-1 px-5 py-8">
+					<nav class="mb-6 flex flex-wrap gap-2 md:hidden">
+						{
+							NAV.map((item) => (
+								<a
+									href={item.href}
+									class:list={[
+										'rounded-full border px-3 py-1 text-xs',
+										active === item.key
+											? 'border-accent text-accent'
+											: 'border-line text-ink-soft',
+									]}
+								>
+									{item.label}
+								</a>
+							))
+						}
+					</nav>
+					<slot />
+				</main>
+			</div>
+		</div>
+	</body>
+</html>

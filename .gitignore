@@ -1,0 +1,37 @@
+# build output
+dist/
+
+# generated types
+.astro/
+worker-configuration.d.ts
+
+# dependencies
+node_modules/
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# environment variables and local secrets
+.env
+.env.production
+.dev.vars
+.dev.vars.local
+
+# real Cloudflare config contains account-specific ids and addresses.
+# Use wrangler.example.jsonc as the template.
+wrangler.jsonc
+
+# Cloudflare / Wrangler state
+.wrangler/
+
+# local overrides
+*.local
+
+# macOS-specific files
+.DS_Store
+
+# jetbrains setting folder
+.idea/

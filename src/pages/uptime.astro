@@ -1,0 +1,153 @@
+---
+import Shell from '../layouts/Shell.astro';
+import Panel from '../components/Panel.astro';
+import StatusBadge from '../components/StatusBadge.astro';
+import EmptyState from '../components/EmptyState.astro';
+import { listMonitors } from '../server/repo';
+
+export const prerender = false;
+
+const monitors = await listMonitors();
+
+const STATUS_TONE: Record<string, 'success' | 'warn' | 'danger' | 'muted'> = {
+	up: 'success',
+	degraded: 'warn',
+	down: 'danger',
+	unknown: 'muted',
+};
+const BAR: Record<string, string> = {
+	up: '#34d399',
+	degraded: '#fbbf24',
+	down: '#f87171',
+	unknown: '#33415a',
+};
+
+const error = Astro.url.searchParams.get('error');
+---
+
+<Shell title="Uptime" active="uptime">
+	<Panel title="Overvågede tjenester" subtitle="Serveren kalder hvert endpoint og registrerer svar og latens">
+		<Fragment slot="actions">
+			<div class="flex items-center gap-2">
+				<form method="post" action="/api/monitors/check">
+					<button class="btn btn-secondary">Tjek alle</button>
+				</form>
+				<details class="relative">
+					<summary class="btn btn-primary cursor-pointer list-none">Tilføj</summary>
+					<form method="post" action="/api/monitors/create" class="mt-3 grid w-[min(90vw,420px)] gap-3 rounded-md border border-line bg-elevated p-4">
+						<div>
+							<label class="mb-1 block text-xs text-ink-soft" for="m-name">Navn</label>
+							<input id="m-name" name="name" required class="field" placeholder="Produktion API" />
+						</div>
+						<div>
+							<label class="mb-1 block text-xs text-ink-soft" for="m-url">URL</label>
+							<input id="m-url" name="url" type="url" required class="field" placeholder="https://example.dk/health" />
+						</div>
+						<div class="grid grid-cols-2 gap-3">
+							<div>
+								<label class="mb-1 block text-xs text-ink-soft" for="m-status">Forventet status</label>
+								<input id="m-status" name="expectedStatus" type="number" value="200" class="field" />
+							</div>
+							<div>
+								<label class="mb-1 block text-xs text-ink-soft" for="m-interval">Interval (sek)</label>
+								<input id="m-interval" name="intervalSec" type="number" value="300" min="60" class="field" />
+							</div>
+						</div>
+						<button type="submit" class="btn btn-primary">Gem</button>
+						{error === 'url' && <p class="text-xs text-danger">Ugyldig URL. Brug http:// eller https://.</p>}
+						{error === 'private' && <p class="text-xs text-danger">Privat eller lokal adresse er blokeret.</p>}
+						{error === 'dns' && <p class="text-xs text-danger">Kunne ikke slå værtsnavnet op.</p>}
+						{error === 'missing' && <p class="text-xs text-danger">Navn og URL er påkrævet.</p>}
+					</form>
+				</details>
+			</div>
+		</Fragment>
+
+		{monitors.length === 0 ? (
+			<EmptyState title="Ingen tjenester overvåges" text="Tilføj et endpoint, og tryk 'Tjek alle' for at se status." />
+		) : (
+			<div class="space-y-3">
+				{monitors.map((m) => (
+					<div class="rounded-sm border border-line p-4">
+						<div class="flex flex-wrap items-center justify-between gap-3">
+							<div class="min-w-0">
+								<div class="flex items-center gap-2">
+									<span class="text-sm font-medium text-ink">{m.name}</span>
+									<StatusBadge tone={STATUS_TONE[m.lastStatus]} label={m.lastStatus} />
+								</div>
+								<p class="mt-0.5 font-mono text-xs text-ink-muted">{m.url}</p>
+							</div>
+							<div class="flex items-center gap-2">
+								<span class="font-mono text-xs text-ink-soft">
+									{m.lastLatencyMs !== null ? `${m.lastLatencyMs} ms` : '—'}
+								</span>
+								<span class="font-mono text-xs text-ink-muted">hver {m.intervalSec}s</span>
+								<button type="button" data-edit={m.id} class="btn btn-secondary h-7 px-2 text-xs">
+									Rediger
+								</button>
+								<form method="post" action="/api/monitors/check">
+									<input type="hidden" name="id" value={m.id} />
+									<button class="btn btn-secondary h-7 px-2 text-xs">Tjek</button>
+								</form>
+								<form method="post" action="/api/monitors/delete">
+									<input type="hidden" name="id" value={m.id} />
+									<button class="btn btn-danger h-7 px-2 text-xs">Slet</button>
+								</form>
+							</div>
+						</div>
+						{m.history.length > 0 && (
+							<div class="mt-3 flex gap-0.5">
+								{[...m.history].reverse().map((p) => (
+									<span
+										class="h-6 flex-1 rounded-[2px]"
+										style={`background:${BAR[p.status]}`}
+										title={`${new Date(p.at).toLocaleString('da-DK')} · ${p.status}${p.latencyMs !== null ? ` · ${p.latencyMs} ms` : ''}`}
+									/>
+								))}
+							</div>
+						)}
+						<div id={`edit-${m.id}`} class="mt-4 hidden border-t border-line pt-4">
+							<form method="post" action="/api/monitors/update" class="grid gap-3 md:grid-cols-2">
+								<input type="hidden" name="id" value={m.id} />
+								<div>
+									<label class="mb-1 block text-xs text-ink-soft">Navn</label>
+									<input name="name" required value={m.name} class="field" />
+								</div>
+								<div>
+									<label class="mb-1 block text-xs text-ink-soft">URL</label>
+									<input name="url" type="url" required value={m.url} class="field" />
+								</div>
+								<div class="grid grid-cols-2 gap-3">
+									<div>
+										<label class="mb-1 block text-xs text-ink-soft">Forventet status</label>
+										<input name="expectedStatus" type="number" value={m.expectedStatus} class="field" />
+									</div>
+									<div>
+										<label class="mb-1 block text-xs text-ink-soft">Interval (sek)</label>
+										<input name="intervalSec" type="number" min="60" value={m.intervalSec} class="field" />
+									</div>
+								</div>
+								<div class="flex items-end gap-2">
+									<button type="submit" class="btn btn-primary">Gem ændringer</button>
+									<button type="button" data-cancel={m.id} class="btn btn-secondary">Annuller</button>
+								</div>
+							</form>
+						</div>
+					</div>
+				))}
+			</div>
+		)}
+	</Panel>
+</Shell>
+
+<script>
+	function toggleEdit(id: string, show: boolean) {
+		document.getElementById(`edit-${id}`)?.classList.toggle('hidden', !show);
+	}
+	document.querySelectorAll<HTMLElement>('[data-edit]').forEach((btn) => {
+		btn.addEventListener('click', () => toggleEdit(btn.dataset.edit!, true));
+	});
+	document.querySelectorAll<HTMLElement>('[data-cancel]').forEach((btn) => {
+		btn.addEventListener('click', () => toggleEdit(btn.dataset.cancel!, false));
+	});
+</script>

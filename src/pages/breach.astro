@@ -1,0 +1,102 @@
+---
+import Shell from '../layouts/Shell.astro';
+import Panel from '../components/Panel.astro';
+
+export const prerender = false;
+---
+
+<Shell title="Lækage-tjek" active="breach">
+	<div class="grid gap-6 lg:grid-cols-2">
+		<Panel title="Adgangskode" subtitle="Tjekkes anonymt via k-anonymity. Koden forlader aldrig serveren i klartekst.">
+			<form id="pw-form" class="space-y-3">
+				<div>
+					<label class="mb-1 block text-xs text-ink-soft" for="pw">Adgangskode</label>
+					<input id="pw" name="pw" type="password" autocomplete="off" class="field" placeholder="Skriv en kode du vil tjekke" />
+				</div>
+				<button class="btn btn-primary" type="submit">Tjek adgangskode</button>
+			</form>
+			<div id="pw-result" class="mt-4 text-sm"></div>
+			<p class="mt-4 border-t border-line pt-3 text-xs text-ink-muted">
+				Der sendes kun de første 5 tegn af en SHA-1-hash til Have I Been Pwned. Selve koden
+				indsendes eller gemmes ikke.
+			</p>
+		</Panel>
+
+		<Panel title="E-mail" subtitle="Slå op i kendte datalækager via Have I Been Pwned.">
+			<form id="em-form" class="space-y-3">
+				<div>
+					<label class="mb-1 block text-xs text-ink-soft" for="em">E-mail</label>
+					<input id="em" name="em" type="email" autocomplete="off" class="field" placeholder="dig@example.dk" />
+				</div>
+				<button class="btn btn-primary" type="submit">Tjek e-mail</button>
+			</form>
+			<div id="em-result" class="mt-4 text-sm"></div>
+		</Panel>
+	</div>
+</Shell>
+
+<script>
+	async function sha1Hex(input: string): Promise<string> {
+		const data = new TextEncoder().encode(input);
+		const digest = await crypto.subtle.digest('SHA-1', data);
+		return [...new Uint8Array(digest)]
+			.map((b) => b.toString(16).padStart(2, '0'))
+			.join('')
+			.toUpperCase();
+	}
+
+	const post = (url: string, data: unknown) =>
+		fetch(url, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify(data),
+		}).then((r) => r.json());
+
+	function render(target: HTMLElement, text: string, tone: 'ok' | 'warn' | 'danger') {
+		const color = tone === 'ok' ? '#34d399' : tone === 'warn' ? '#fbbf24' : '#f87171';
+		target.replaceChildren();
+		const div = document.createElement('div');
+		div.style.cssText = `border:1px solid ${color}55;background:${color}14;color:${color};padding:12px 14px;border-radius:8px`;
+		div.textContent = text;
+		target.appendChild(div);
+	}
+
+	const pwForm = document.getElementById('pw-form') as HTMLFormElement | null;
+	const pwResult = document.getElementById('pw-result')!;
+	pwForm?.addEventListener('submit', async (e) => {
+		e.preventDefault();
+		const value = (document.getElementById('pw') as HTMLInputElement).value;
+		if (!value) return;
+		render(pwResult, 'Tjekker …', 'warn');
+		// Hash in the browser so the password never leaves the page.
+		const hash = await sha1Hex(value);
+		const res = await post('/api/breach/check', {
+			mode: 'password',
+			prefix: hash.slice(0, 5),
+			suffix: hash.slice(5),
+		});
+		if (!res.ok) return render(pwResult, 'Kunne ikke nå tjenesten. Prøv igen senere.', 'danger');
+		if (res.pwned) {
+			render(pwResult, `Fundet i lækager ${res.count.toLocaleString('da-DK')} gange. Skift den.`, 'danger');
+		} else {
+			render(pwResult, 'Ikke fundet i kendte lækager.', 'ok');
+		}
+	});
+
+	const emForm = document.getElementById('em-form') as HTMLFormElement | null;
+	const emResult = document.getElementById('em-result')!;
+	emForm?.addEventListener('submit', async (e) => {
+		e.preventDefault();
+		const value = (document.getElementById('em') as HTMLInputElement).value;
+		if (!value) return;
+		render(emResult, 'Tjekker …', 'warn');
+		const res = await post('/api/breach/check', { mode: 'email', value });
+		if (!res.ok) return render(emResult, 'Kunne ikke nå tjenesten. Prøv igen senere.', 'danger');
+		if (res.configured === false) {
+			return render(emResult, 'E-mail-opslag er ikke konfigureret. Sæt HIBP_API_KEY for at aktivere.', 'warn');
+		}
+		if (!res.breaches?.length) return render(emResult, 'Ingen kendte lækager fundet.', 'ok');
+		const list = res.breaches.map((b: { name: string; date: string }) => `${b.name} (${b.date})`).join(', ');
+		render(emResult, `Fundet i ${res.breaches.length} lækage(r): ${list}`, 'danger');
+	});
+</script>

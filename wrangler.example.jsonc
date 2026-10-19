@@ -1,0 +1,29 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "sentinel",
+	"main": "./src/worker.ts",
+	"compatibility_date": "2026-10-16",
+	"compatibility_flags": ["nodejs_compat"],
+	"triggers": {
+		"crons": ["* * * * *"]
+	},
+	"send_email": [
+		{
+			"name": "EMAIL",
+			"allowed_destination_addresses": ["you@example.com"],
+			"allowed_sender_addresses": ["sentinel@example.com"]
+		}
+	],
+	"vars": {
+		"ALLOW_PRIVATE_TARGETS": "false",
+		"ALLOW_BOOTSTRAP": "false"
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "sentinel",
+			"database_id": "REPLACE_WITH_D1_DATABASE_ID",
+			"migrations_dir": "migrations"
+		}
+	]
+}

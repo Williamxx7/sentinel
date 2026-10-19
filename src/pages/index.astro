@@ -1,0 +1,105 @@
+---
+import '../styles/global.css';
+import { env } from 'cloudflare:workers';
+import { hasUsers } from '../server/auth';
+
+export const prerender = false;
+
+// Account creation only happens while no user exists and bootstrap is
+// explicitly enabled. Otherwise the site is locked to the existing login.
+const bootstrapAllowed = env.ALLOW_BOOTSTRAP === 'true';
+const firstRun = bootstrapAllowed && !(await hasUsers());
+const error = Astro.url.searchParams.get('error');
+const ERROR_MESSAGES: Record<string, string> = {
+	credentials: 'Forkert brugernavn eller adgangskode.',
+	exists: 'Der findes allerede en bruger. Log ind i stedet.',
+	weak: 'Adgangskoden skal være mindst 10 tegn.',
+	locked: 'For mange forsøg. Prøv igen om et kvarter.',
+	closed: 'Oprettelse af nye konti er slået fra.',
+	missing: 'Udfyld alle felter.',
+};
+
+const message = error ? ERROR_MESSAGES[error] ?? 'Noget gik galt. Prøv igen.' : null;
+---
+
+<!doctype html>
+<html lang="da">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		<meta name="robots" content="noindex, nofollow" />
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+		<link
+			rel="stylesheet"
+			href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+		/>
+		<title>Log ind · Sentinel</title>
+	</head>
+	<body class="flex min-h-screen items-center justify-center px-5">
+		<div class="w-full max-w-sm">
+			<div class="mb-8 flex items-center gap-2">
+				<span class="inline-block h-2.5 w-2.5 rounded-full bg-accent"></span>
+				<span class="font-mono text-sm tracking-wide text-ink">Sentinel</span>
+			</div>
+
+			<h1 class="text-2xl font-semibold tracking-tight text-ink">
+				{firstRun ? 'Opret dit kontrolrum' : 'Log ind'}
+			</h1>
+			<p class="mt-1 text-sm text-ink-soft">
+				{
+					firstRun
+						? 'Første gang: opret den konto, der skal styre dashboardet.'
+						: 'Privat kontrolrum for dine aktiver, uptime og hændelser.'
+				}
+			</p>
+
+			{message && (
+				<p class="mt-5 rounded-md border border-danger/40 bg-danger/10 px-4 py-2.5 text-sm text-danger">
+					{message}
+				</p>
+			)}
+
+			<form
+				method="post"
+				action={firstRun ? '/api/auth/bootstrap' : '/api/auth/login'}
+				class="mt-6 space-y-4"
+			>
+				<div>
+					<label for="username" class="mb-1.5 block text-xs font-medium text-ink-soft">Brugernavn</label>
+					<input
+						id="username"
+						name="username"
+						type="text"
+						autocomplete="username"
+						required
+						class="field"
+						placeholder="dit navn"
+					/>
+				</div>
+				<div>
+					<label for="password" class="mb-1.5 block text-xs font-medium text-ink-soft">Adgangskode</label>
+					<input
+						id="password"
+						name="password"
+						type="password"
+						autocomplete={firstRun ? 'new-password' : 'current-password'}
+						required
+						minlength={firstRun ? 10 : undefined}
+						class="field"
+						placeholder="••••••••••"
+					/>
+					{firstRun && <p class="mt-1.5 text-xs text-ink-muted">Mindst 10 tegn.</p>}
+				</div>
+				<button type="submit" class="btn btn-primary w-full">
+					{firstRun ? 'Opret og log ind' : 'Log ind'}
+				</button>
+			</form>
+
+			<p class="mt-6 text-center font-mono text-[11px] text-ink-muted">
+				lokal drift · data gemmes i din private Cloudflare-database
+			</p>
+		</div>
+	</body>
+</html>

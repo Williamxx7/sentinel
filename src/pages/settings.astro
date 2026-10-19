@@ -1,0 +1,243 @@
+---
+import Shell from '../layouts/Shell.astro';
+import Panel from '../components/Panel.astro';
+import EmptyState from '../components/EmptyState.astro';
+import { listAgents } from '../server/repo';
+import { getSetting } from '../server/settings';
+
+export const prerender = false;
+
+const agents = await listAgents();
+const ingestUrl = `${Astro.url.origin}/api/ingest`;
+const webhookUrl = (await getSetting('notify_webhook_url')) ?? '';
+const minSeverity = (await getSetting('notify_min_severity')) ?? 'high';
+const emailTo = (await getSetting('notify_email_to')) ?? '';
+const emailFrom = (await getSetting('notify_email_from')) ?? '';
+const notifyDetail = (await getSetting('notify_detail')) ?? 'minimal';
+const missingHours = (await getSetting('device_missing_hours')) ?? '48';
+const saved = Astro.url.searchParams.get('saved');
+const tested = Astro.url.searchParams.get('tested');
+const error = Astro.url.searchParams.get('error');
+
+const SEVERITIES: Array<[string, string]> = [
+	['low', 'Lav'],
+	['medium', 'Mellem'],
+	['high', 'Høj'],
+	['critical', 'Kritisk'],
+];
+---
+
+<Shell title="Indstillinger" active="settings">
+	<div class="grid gap-6 lg:grid-cols-3">
+		<div class="lg:col-span-2">
+			<Panel title="Agenter" subtitle="Lokale scannere der uploader fund til Sentinel. Kun en hash af tokenet gemmes.">
+				<form id="agent-form" class="mb-5 flex flex-wrap items-end gap-3">
+					<div class="grow">
+						<label class="mb-1 block text-xs text-ink-soft" for="agent-name">Navn på agent</label>
+						<input id="agent-name" class="field" placeholder="proxmox" />
+					</div>
+					<button type="submit" class="btn btn-primary">Opret agent</button>
+				</form>
+
+				<div id="agent-token" class="mb-5 hidden rounded-md border border-accent/40 bg-accent-soft/20 p-4">
+					<p class="text-xs font-medium text-accent">Token (vises kun nu, kopiér det):</p>
+					<pre id="agent-token-value" class="mt-2 overflow-x-auto whitespace-pre-wrap break-all font-mono text-xs text-ink"></pre>
+				</div>
+
+				{agents.length === 0 ? (
+					<EmptyState title="Ingen agenter" text="Opret en agent og kør scriptet på din Proxmox-maskine." />
+				) : (
+					<div class="overflow-x-auto rounded-sm border border-line">
+						<table class="w-full text-sm">
+							<thead>
+								<tr class="bg-elevated text-left text-[11px] uppercase tracking-wide text-ink-muted">
+									<th class="px-4 py-2 font-medium">Navn</th>
+									<th class="px-4 py-2 font-medium">Oprettet</th>
+									<th class="px-4 py-2 font-medium">Sidst set</th>
+									<th class="px-4 py-2"></th>
+								</tr>
+							</thead>
+							<tbody>
+								{agents.map((a) => (
+									<tr class="border-t border-line hover:bg-canvas">
+										<td class="px-4 py-2.5 font-mono text-xs text-ink">{a.name}</td>
+										<td class="px-4 py-2.5 font-mono text-xs text-ink-muted">
+											{new Date(a.createdAt).toLocaleDateString('da-DK')}
+										</td>
+										<td class="px-4 py-2.5 font-mono text-xs text-ink-muted">
+											{a.lastSeenAt ? new Date(a.lastSeenAt).toLocaleString('da-DK') : 'aldrig'}
+										</td>
+										<td class="px-4 py-2.5 text-right">
+											<form method="post" action="/api/agents/delete">
+												<input type="hidden" name="id" value={a.id} />
+												<button class="btn btn-danger h-7 px-2 text-xs">Slet</button>
+											</form>
+										</td>
+									</tr>
+								))}
+							</tbody>
+						</table>
+					</div>
+				)}
+			</Panel>
+
+			<div class="mt-6">
+				<Panel title="Notifikationer" subtitle="Send en besked til en webhook ved vigtige hændelser (Slack, Discord, ntfy eller dit eget endpoint).">
+					<form method="post" action="/api/settings/notify" class="grid gap-3 md:grid-cols-2">
+						<div class="md:col-span-2">
+							<label class="mb-1 block text-xs text-ink-soft" for="webhook_url">Webhook-URL</label>
+							<input
+								id="webhook_url"
+								name="webhook_url"
+								type="url"
+								value={webhookUrl}
+								class="field"
+								placeholder="https://hooks.slack.com/services/..."
+							/>
+							<p class="mt-1 text-xs text-ink-muted">Lad feltet være tomt for at slå notifikationer fra.</p>
+						</div>
+						<div class="md:col-span-2">
+							<label class="mb-1 block text-xs text-ink-soft" for="notify_email_to">E-mail modtager</label>
+							<input
+								id="notify_email_to"
+								name="notify_email_to"
+								type="text"
+								inputmode="email"
+								value={emailTo}
+								class="field"
+								placeholder="dig@example.dk"
+							/>
+							<p class="mt-1 text-xs text-ink-muted">
+								Kommasepareret ved flere modtagere. Sendes via Cloudflare fra dit eget domæne, så ingen
+								tredjepart eller API-nøgle er nødvendig.
+							</p>
+						</div>
+						<div class="md:col-span-2">
+							<label class="mb-1 block text-xs text-ink-soft" for="notify_email_from">Afsender (valgfri)</label>
+							<input
+								id="notify_email_from"
+								name="notify_email_from"
+								value={emailFrom}
+								class="field"
+								placeholder="sentinel@example.com"
+							/>
+							<p class="mt-1 text-xs text-ink-muted">
+								Skal være en adresse på det domæne, der er aktiveret til afsendelse i Cloudflare.
+							</p>
+						</div>
+						<div>
+							<label class="mb-1 block text-xs text-ink-soft" for="min_severity">Minimum alvor</label>
+							<select id="min_severity" name="min_severity" class="field">
+								{SEVERITIES.map(([value, label]) => (
+									<option value={value} selected={value === minSeverity}>{label}</option>
+								))}
+							</select>
+						</div>
+						<div>
+							<label class="mb-1 block text-xs text-ink-soft" for="notify_detail">Detaljer i notifikationer</label>
+							<select id="notify_detail" name="notify_detail" class="field">
+								<option value="minimal" selected={notifyDetail !== 'full'}>Minimal (anbefalet)</option>
+								<option value="full" selected={notifyDetail === 'full'}>Fuld (IP, MAC, porte)</option>
+							</select>
+						</div>
+						<div class="md:col-span-2">
+							<p class="mb-3 text-xs text-ink-muted">
+								Minimal sender kun overskrift, kilde, tid og link til dashboardet. Fuld inkluderer IP-adresser,
+								MAC og porte i selve mailen.
+							</p>
+							<button type="submit" class="btn btn-primary">Gem</button>
+						</div>
+					</form>
+					<form method="post" action="/api/settings/test" class="mt-3 border-t border-line pt-3">
+						<button type="submit" class="btn btn-secondary">Send testnotifikation</button>
+					</form>
+					{saved && <p class="mt-3 text-xs text-success">Gemt.</p>}
+					{tested && <p class="mt-3 text-xs text-success">Test sendt (tjek din webhook).</p>}
+					{error === 'url' && <p class="mt-3 text-xs text-danger">Ugyldig webhook-URL.</p>}
+					{error === 'email' && <p class="mt-3 text-xs text-danger">Ugyldig e-mailadresse.</p>}
+					{error === 'sendfail' && <p class="mt-3 text-xs text-danger">Kunne ikke sende e-mail. Tjek at domænet er aktiveret til afsendelse i Cloudflare.</p>}
+					{error === 'webhookfail' && <p class="mt-3 text-xs text-danger">Kunne ikke nå webhooken.</p>}
+					{error === 'ratelimit' && <p class="mt-3 text-xs text-danger">For mange testnotifikationer. Prøv igen senere.</p>}
+					{error === 'nourl' && <p class="mt-3 text-xs text-danger">Sæt en webhook-URL eller e-mail først.</p>}
+				</Panel>
+			</div>
+
+			<div class="mt-6">
+				<Panel title="Regler" subtitle="Hvor længe en kendt enhed må være væk, før den regnes som forsvundet.">
+					<form method="post" action="/api/settings/rules" class="flex flex-wrap items-end gap-3">
+						<div>
+							<label class="mb-1 block text-xs text-ink-soft" for="device_missing_hours">Timer før "forsvundet"</label>
+							<input
+								id="device_missing_hours"
+								name="device_missing_hours"
+								type="number"
+								min="1"
+								max="8760"
+								value={missingHours}
+								class="field w-32"
+							/>
+						</div>
+						<button type="submit" class="btn btn-primary">Gem</button>
+					</form>
+					<p class="mt-2 text-xs text-ink-muted">
+						Hændelsen lukkes automatisk, når enheden dukker op igen.
+					</p>
+				</Panel>
+			</div>
+
+			<div class="mt-6">
+				<Panel title="Sessioner" subtitle="Du er kun logget ind ét sted ad gangen på hver enhed.">
+					<p class="text-sm text-ink-soft">
+						Logger du ud alle steder, lukkes denne session også, og du skal logge ind igen.
+					</p>
+					<form method="post" action="/api/auth/logout-all" class="mt-3">
+						<button type="submit" class="btn btn-danger">Log ud på alle enheder</button>
+					</form>
+				</Panel>
+			</div>
+		</div>
+
+		<div>
+			<Panel title="Sådan kører agenten">
+				<p class="text-sm text-ink-soft">
+					Agenten ligger i <code class="font-mono text-xs">agent/sentinel-agent.mjs</code>. Kopiér den til din
+					Proxmox-maskine og sæt disse miljøvariabler:
+				</p>
+				<pre class="mt-3 overflow-x-auto rounded-sm border border-line bg-canvas p-3 font-mono text-[11px] leading-relaxed text-ink-soft">SENTINEL_URL={Astro.url.origin}
+SENTINEL_TOKEN=&lt;token&gt;
+SCAN_SUBNETS=192.168.1.0/24
+SCANNER=nmap
+ENABLE_PORT_SCAN=false
+DHCP_LEASES=/var/lib/misc/dnsmasq.leases</pre>
+				<p class="mt-3 text-sm text-ink-soft">
+					Kør den via systemd-timer eller cron. Fuld guide: <code class="font-mono text-xs">docs/AGENT.md</code>.
+				</p>
+			</Panel>
+		</div>
+	</div>
+</Shell>
+
+<script>
+	const form = document.getElementById('agent-form') as HTMLFormElement;
+	const box = document.getElementById('agent-token')!;
+	const value = document.getElementById('agent-token-value')!;
+	form.addEventListener('submit', async (e) => {
+		e.preventDefault();
+		const name = (document.getElementById('agent-name') as HTMLInputElement).value || 'agent';
+		const res = await fetch('/api/agents/create', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ name }),
+		});
+		if (!res.ok) {
+			value.textContent = 'Kunne ikke oprette agenten. Prøv igen.';
+			box.classList.remove('hidden');
+			return;
+		}
+		const data = await res.json();
+		if (!data.token) return;
+		value.textContent = data.token;
+		box.classList.remove('hidden');
+		navigator.clipboard?.writeText(data.token).catch(() => {});
+	});
+</script>

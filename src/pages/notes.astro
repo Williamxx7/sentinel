@@ -1,0 +1,208 @@
+---
+import Shell from '../layouts/Shell.astro';
+import Panel from '../components/Panel.astro';
+import EmptyState from '../components/EmptyState.astro';
+import { listNotes } from '../server/repo';
+
+export const prerender = false;
+
+const notes = await listNotes();
+const error = Astro.url.searchParams.get('error');
+---
+
+<Shell title="Noter" active="notes">
+	<div class="grid gap-6 lg:grid-cols-3">
+		<div class="lg:col-span-2">
+			<Panel title="Krypterede noter" subtitle={`${notes.length} noter · krypteres i browseren før de gemmes`}>
+				<div class="mb-4">
+					<label class="mb-1 block text-xs text-ink-soft" for="pass">Din nøgle (huskes kun i denne fane)</label>
+					<input id="pass" type="password" autocomplete="off" class="field" placeholder="En sætning du kan huske" />
+					<p class="mt-1.5 text-xs text-ink-muted">
+						Nøglen sendes aldrig til serveren. Glemmer du den, kan noterne ikke gendannes.
+						Titler gemmes ukrypteret så de kan vises i listen, men selve indholdet er krypteret.
+					</p>
+				</div>
+
+				{notes.length === 0 ? (
+					<EmptyState title="Ingen noter endnu" text="Skriv din første note til højre. Indholdet krypteres lokalt med AES-GCM." />
+				) : (
+					<ul class="space-y-2">
+						{notes.map((n) => (
+							<li
+								class="flex items-center justify-between gap-3 rounded-sm border border-line p-3"
+								data-note
+								data-id={n.id}
+								data-title={n.title}
+								data-ct={n.ciphertext}
+								data-iv={n.iv}
+								data-salt={n.salt}
+							>
+								<div class="min-w-0">
+									<p class="truncate text-sm text-ink">{n.title}</p>
+									<p class="font-mono text-xs text-ink-muted">
+										{new Date(n.updatedAt).toLocaleString('da-DK')}
+									</p>
+								</div>
+								<div class="flex items-center gap-2">
+									<button class="btn btn-secondary h-7 px-2 text-xs" data-open>Åbn</button>
+									<form method="post" action="/api/notes/delete">
+										<input type="hidden" name="id" value={n.id} />
+										<button class="btn btn-danger h-7 px-2 text-xs">Slet</button>
+									</form>
+								</div>
+							</li>
+						))}
+					</ul>
+				)}
+
+				<div id="note-view" class="mt-4 hidden rounded-sm border border-accent/40 bg-accent-soft/20 p-4">
+					<div class="mb-2 flex items-center justify-between">
+						<h3 id="note-view-title" class="text-sm font-semibold text-ink"></h3>
+						<div class="flex items-center gap-2">
+							<button id="note-view-edit" class="btn btn-secondary h-7 px-2 text-xs">Rediger</button>
+							<button id="note-view-close" class="text-xs text-ink-muted">Luk</button>
+						</div>
+					</div>
+					<pre id="note-view-body" class="whitespace-pre-wrap font-sans text-sm text-ink-soft"></pre>
+				</div>
+			</Panel>
+		</div>
+
+		<div>
+			<Panel title="Ny note">
+				<form id="note-form" class="space-y-3">
+					<input type="hidden" id="n-id" />
+					<div>
+						<label class="mb-1 block text-xs text-ink-soft" for="n-title">Titel</label>
+						<input id="n-title" required class="field" placeholder="Router-adgang" />
+					</div>
+					<div>
+						<label class="mb-1 block text-xs text-ink-soft" for="n-body">Indhold</label>
+						<textarea id="n-body" rows="8" class="field" placeholder="Skriv fortroligt indhold …"></textarea>
+					</div>
+					<button class="btn btn-primary w-full" type="submit">Krypter og gem</button>
+					<p id="n-mode" class="text-xs text-ink-muted"></p>
+					<p id="n-status" class="text-xs text-ink-muted"></p>
+					{error && <p class="text-xs text-danger">Note mangler titel eller indhold.</p>}
+				</form>
+			</Panel>
+		</div>
+	</div>
+</Shell>
+
+<script>
+	const enc = new TextEncoder();
+	const dec = new TextDecoder();
+
+	function toB64(buf: ArrayBuffer | Uint8Array): string {
+		const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+		return btoa(String.fromCharCode(...bytes));
+	}
+	function fromB64(s: string): Uint8Array {
+		return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+	}
+
+	async function deriveKey(passphrase: string, salt: Uint8Array): Promise<CryptoKey> {
+		const base = await crypto.subtle.importKey('raw', enc.encode(passphrase), 'PBKDF2', false, [
+			'deriveKey',
+		]);
+		return crypto.subtle.deriveKey(
+			{ name: 'PBKDF2', salt, iterations: 600_000, hash: 'SHA-256' },
+			base,
+			{ name: 'AES-GCM', length: 256 },
+			false,
+			['encrypt', 'decrypt'],
+		);
+	}
+
+	const passEl = document.getElementById('pass') as HTMLInputElement;
+	const statusEl = document.getElementById('n-status')!;
+	const modeEl = document.getElementById('n-mode')!;
+	const idEl = document.getElementById('n-id') as HTMLInputElement;
+	const titleEl = document.getElementById('n-title') as HTMLInputElement;
+	const bodyEl = document.getElementById('n-body') as HTMLTextAreaElement;
+
+	const form = document.getElementById('note-form') as HTMLFormElement;
+	form.addEventListener('submit', async (e) => {
+		e.preventDefault();
+		const passphrase = passEl.value;
+		if (passphrase.length < 8) {
+			statusEl.textContent = 'Sæt en nøgle på mindst 8 tegn i feltet til venstre.';
+			statusEl.style.color = '#f87171';
+			return;
+		}
+		const title = titleEl.value;
+		const body = bodyEl.value;
+		statusEl.textContent = 'Krypterer …';
+		statusEl.style.color = '';
+
+		const salt = crypto.getRandomValues(new Uint8Array(16));
+		const iv = crypto.getRandomValues(new Uint8Array(12));
+		const key = await deriveKey(passphrase, salt);
+		const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(body));
+
+		const res = await fetch('/api/notes/save', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				id: idEl.value || undefined,
+				title,
+				ciphertext: toB64(ct),
+				iv: toB64(iv),
+				salt: toB64(salt),
+			}),
+		});
+		if (res.ok) window.location.reload();
+		else {
+			statusEl.textContent = 'Kunne ikke gemme noten.';
+			statusEl.style.color = '#f87171';
+		}
+	});
+
+	const view = document.getElementById('note-view')!;
+	const viewTitle = document.getElementById('note-view-title')!;
+	const viewBody = document.getElementById('note-view-body')!;
+	document.getElementById('note-view-close')?.addEventListener('click', () => view.classList.add('hidden'));
+
+	let current: { id: string; title: string; plain: string } | null = null;
+
+	document.getElementById('note-view-edit')?.addEventListener('click', () => {
+		if (!current) return;
+		idEl.value = current.id;
+		titleEl.value = current.title;
+		bodyEl.value = current.plain;
+		modeEl.textContent = `Redigerer: ${current.title} (gem for at overskrive)`;
+		bodyEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+	});
+
+	document.querySelectorAll<HTMLElement>('[data-open]').forEach((btn) => {
+		btn.addEventListener('click', async () => {
+			const li = btn.closest<HTMLElement>('[data-note]')!;
+			const passphrase = passEl.value;
+			if (passphrase.length < 8) {
+				alert('Skriv din nøgle i feltet først.');
+				return;
+			}
+			try {
+				const salt = fromB64(li.dataset.salt!);
+				const iv = fromB64(li.dataset.iv!);
+				const key = await deriveKey(passphrase, salt);
+				const plain = await crypto.subtle.decrypt(
+					{ name: 'AES-GCM', iv },
+					key,
+					fromB64(li.dataset.ct!),
+				);
+				const text = dec.decode(plain);
+				current = { id: li.dataset.id ?? '', title: li.dataset.title ?? '', plain: text };
+				viewTitle.textContent = current.title;
+				viewBody.textContent = text;
+				view.classList.remove('hidden');
+			} catch {
+				current = null;
+				viewTitle.textContent = 'Kunne ikke dekryptere';
+				viewBody.textContent = 'Forkert nøgle, eller noten er beskadiget.';
+				view.classList.remove('hidden');
+			}
+		});
+	});
+</script>

@@ -1,0 +1,212 @@
+---
+import Shell from '../layouts/Shell.astro';
+import Panel from '../components/Panel.astro';
+import StatusBadge from '../components/StatusBadge.astro';
+import EmptyState from '../components/EmptyState.astro';
+import { listIncidents } from '../server/repo';
+
+export const prerender = false;
+
+const allIncidents = await listIncidents();
+
+const q = (Astro.url.searchParams.get('q') ?? '').trim().toLowerCase();
+const statusFilter = Astro.url.searchParams.get('status') ?? '';
+const severityFilter = Astro.url.searchParams.get('severity') ?? '';
+
+const incidents = allIncidents.filter((i) => {
+	if (statusFilter && i.status !== statusFilter) return false;
+	if (severityFilter && i.severity !== severityFilter) return false;
+	if (q) {
+		const haystack = `${i.title} ${i.description} ${i.source} ${i.tags.join(' ')}`.toLowerCase();
+		if (!haystack.includes(q)) return false;
+	}
+	return true;
+});
+const filtered = Boolean(q || statusFilter || severityFilter);
+
+const SEVERITY_TONE: Record<string, 'success' | 'warn' | 'danger' | 'muted'> = {
+	low: 'muted',
+	medium: 'warn',
+	high: 'danger',
+	critical: 'danger',
+};
+const STATUS_LABEL: Record<string, string> = {
+	open: 'Åben',
+	investigating: 'Undersøges',
+	mitigated: 'Afværget',
+	resolved: 'Løst',
+};
+const STATUS_TONE: Record<string, 'success' | 'warn' | 'danger' | 'muted'> = {
+	open: 'danger',
+	investigating: 'warn',
+	mitigated: 'warn',
+	resolved: 'success',
+};
+const SEVERITY_LABEL: Record<string, string> = {
+	low: 'Lav',
+	medium: 'Mellem',
+	high: 'Høj',
+	critical: 'Kritisk',
+};
+
+const error = Astro.url.searchParams.get('error');
+---
+
+<Shell title="Hændelser" active="incidents">
+	<Panel title="Hændelseslog" subtitle={`${incidents.length} registreret · mistænkelige mails, opkald og hændelser`}>
+		<Fragment slot="actions">
+			<details class="relative">
+				<summary class="btn btn-primary cursor-pointer list-none">Ny hændelse</summary>
+				<form method="post" action="/api/incidents/create" class="mt-3 grid w-[min(90vw,420px)] gap-3 rounded-md border border-line bg-elevated p-4">
+					<div>
+						<label class="mb-1 block text-xs text-ink-soft" for="i-title">Titel</label>
+						<input id="i-title" name="title" required class="field" placeholder="Phishing-mail fra 'bank'" />
+					</div>
+					<div class="grid grid-cols-2 gap-3">
+						<div>
+							<label class="mb-1 block text-xs text-ink-soft" for="i-sev">Alvor</label>
+							<select id="i-sev" name="severity" class="field">
+								{Object.entries(SEVERITY_LABEL).map(([v, l]) => <option value={v} selected={v === 'medium'}>{l}</option>)}
+							</select>
+						</div>
+						<div>
+							<label class="mb-1 block text-xs text-ink-soft" for="i-src">Kilde</label>
+							<input id="i-src" name="source" class="field" placeholder="E-mail, telefon" />
+						</div>
+					</div>
+					<div>
+						<label class="mb-1 block text-xs text-ink-soft" for="i-desc">Beskrivelse</label>
+						<textarea id="i-desc" name="description" rows="3" class="field"></textarea>
+					</div>
+					<div>
+						<label class="mb-1 block text-xs text-ink-soft" for="i-tags">Tags</label>
+						<input id="i-tags" name="tags" class="field" placeholder="phishing, ekstern" />
+					</div>
+					<button type="submit" class="btn btn-primary">Gem</button>
+					{error && <p class="text-xs text-danger">Titel er påkrævet.</p>}
+				</form>
+			</details>
+		</Fragment>
+
+		<form method="get" class="mb-4 flex flex-wrap items-end gap-2">
+			<div class="grow">
+				<label class="mb-1 block text-xs text-ink-soft" for="q">Søg</label>
+				<input id="q" name="q" value={q} class="field" placeholder="titel, kilde, tag" />
+			</div>
+			<div>
+				<label class="mb-1 block text-xs text-ink-soft" for="f-status">Status</label>
+				<select id="f-status" name="status" class="field">
+					<option value="">Alle</option>
+					{Object.entries(STATUS_LABEL).map(([v, l]) => (
+						<option value={v} selected={v === statusFilter}>{l}</option>
+					))}
+				</select>
+			</div>
+			<div>
+				<label class="mb-1 block text-xs text-ink-soft" for="f-sev">Alvor</label>
+				<select id="f-sev" name="severity" class="field">
+					<option value="">Alle</option>
+					{Object.entries(SEVERITY_LABEL).map(([v, l]) => (
+						<option value={v} selected={v === severityFilter}>{l}</option>
+					))}
+				</select>
+			</div>
+			<button class="btn btn-secondary">Filtrer</button>
+			{filtered && <a href="/incidents" class="btn btn-secondary">Nulstil</a>}
+		</form>
+		{filtered && (
+			<p class="mb-3 text-xs text-ink-muted">Viser {incidents.length} af {allIncidents.length} hændelser.</p>
+		)}
+
+		{incidents.length === 0 ? (
+			<EmptyState title="Ingen hændelser" text="Log mistænkelige mails, opkald eller andre hændelser her, så du kan følge dem." />
+		) : (
+			<div class="space-y-3">
+				{incidents.map((i) => (
+					<div class="rounded-sm border border-line p-4">
+						<div class="flex flex-wrap items-start justify-between gap-3">
+							<div class="min-w-0">
+								<div class="flex flex-wrap items-center gap-2">
+									<span class="text-sm font-medium text-ink">{i.title}</span>
+									<StatusBadge tone={SEVERITY_TONE[i.severity]} label={SEVERITY_LABEL[i.severity]} dot={false} />
+									<StatusBadge tone={STATUS_TONE[i.status]} label={STATUS_LABEL[i.status]} />
+								</div>
+								{i.description && <p class="mt-1.5 text-sm text-ink-soft">{i.description}</p>}
+								<p class="mt-1 font-mono text-xs text-ink-muted">
+									{new Date(i.createdAt).toLocaleString('da-DK')}{i.source ? ` · ${i.source}` : ''}
+								</p>
+							</div>
+							<div class="flex items-center gap-2">
+								<button type="button" data-edit={i.id} class="btn btn-secondary h-7 px-2 text-xs">
+									Rediger
+								</button>
+								<form method="post" action="/api/incidents/update">
+									<input type="hidden" name="id" value={i.id} />
+									<select name="status" data-autosubmit class="field h-7 py-0 text-xs">
+										{Object.entries(STATUS_LABEL).map(([v, l]) => <option value={v} selected={v === i.status}>{l}</option>)}
+									</select>
+									<noscript><button class="btn btn-secondary h-7 px-2 text-xs">Gem</button></noscript>
+								</form>
+								<form method="post" action="/api/incidents/delete">
+									<input type="hidden" name="id" value={i.id} />
+									<button class="btn btn-danger h-7 px-2 text-xs">Slet</button>
+								</form>
+							</div>
+						</div>
+						<div id={`edit-${i.id}`} class="mt-4 hidden border-t border-line pt-4">
+							<form method="post" action="/api/incidents/edit" class="grid gap-3 md:grid-cols-2">
+								<input type="hidden" name="id" value={i.id} />
+								<div class="md:col-span-2">
+									<label class="mb-1 block text-xs text-ink-soft">Titel</label>
+									<input name="title" required value={i.title} class="field" />
+								</div>
+								<div class="grid grid-cols-2 gap-3">
+									<div>
+										<label class="mb-1 block text-xs text-ink-soft">Alvor</label>
+										<select name="severity" class="field">
+											{Object.entries(SEVERITY_LABEL).map(([v, l]) => (
+												<option value={v} selected={v === i.severity}>{l}</option>
+											))}
+										</select>
+									</div>
+									<div>
+										<label class="mb-1 block text-xs text-ink-soft">Kilde</label>
+										<input name="source" value={i.source} class="field" />
+									</div>
+								</div>
+								<div>
+									<label class="mb-1 block text-xs text-ink-soft">Tags</label>
+									<input name="tags" value={i.tags.join(', ')} class="field" />
+								</div>
+								<div class="md:col-span-2">
+									<label class="mb-1 block text-xs text-ink-soft">Beskrivelse</label>
+									<textarea name="description" rows="3" class="field">{i.description}</textarea>
+								</div>
+								<div class="flex items-center gap-2 md:col-span-2">
+									<button type="submit" class="btn btn-primary">Gem ændringer</button>
+									<button type="button" data-cancel={i.id} class="btn btn-secondary">Annuller</button>
+								</div>
+							</form>
+						</div>
+					</div>
+				))}
+			</div>
+		)}
+	</Panel>
+</Shell>
+
+<script>
+	function toggleEdit(id: string, show: boolean) {
+		document.getElementById(`edit-${id}`)?.classList.toggle('hidden', !show);
+	}
+	document.querySelectorAll<HTMLElement>('[data-edit]').forEach((btn) => {
+		btn.addEventListener('click', () => toggleEdit(btn.dataset.edit!, true));
+	});
+	document.querySelectorAll<HTMLElement>('[data-cancel]').forEach((btn) => {
+		btn.addEventListener('click', () => toggleEdit(btn.dataset.cancel!, false));
+	});
+
+	document.querySelectorAll<HTMLSelectElement>('select[data-autosubmit]').forEach((el) => {
+		el.addEventListener('change', () => el.form?.requestSubmit());
+	});
+</script>

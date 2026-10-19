@@ -1,0 +1,153 @@
+---
+import Shell from '../layouts/Shell.astro';
+import StatCard from '../components/StatCard.astro';
+import Panel from '../components/Panel.astro';
+import StatusBadge from '../components/StatusBadge.astro';
+import EmptyState from '../components/EmptyState.astro';
+import { daysUntil, listAgents, listAssets, listIncidents, listMonitors, summary } from '../server/repo';
+
+export const prerender = false;
+
+const [stats, monitors, incidents, assets, agents] = await Promise.all([
+	summary(),
+	listMonitors(),
+	listIncidents(),
+	listAssets(),
+	listAgents(),
+]);
+
+const latestAgent = [...agents].sort((a, b) => (b.lastSeenAt ?? '').localeCompare(a.lastSeenAt ?? ''))[0] ?? null;
+const agentAgeMin = latestAgent?.lastSeenAt
+	? Math.floor((Date.now() - new Date(latestAgent.lastSeenAt).getTime()) / 60_000)
+	: null;
+const agentStale = agentAgeMin === null || agentAgeMin > 30;
+
+const expiring = assets
+	.filter((a) => {
+		const d = daysUntil(a.expiresAt);
+		return d !== null && d <= 30;
+	})
+	.slice(0, 5);
+
+const activeIncidents = incidents.filter((i) => i.status !== 'resolved').slice(0, 5);
+
+const SEVERITY_TONE: Record<string, 'success' | 'warn' | 'danger' | 'muted'> = {
+	low: 'muted',
+	medium: 'warn',
+	high: 'danger',
+	critical: 'danger',
+};
+const STATUS_TONE: Record<string, 'success' | 'warn' | 'danger' | 'muted'> = {
+	up: 'success',
+	degraded: 'warn',
+	down: 'danger',
+	unknown: 'muted',
+};
+---
+
+<Shell title="Overblik" active="dashboard">
+	<div class="grid grid-cols-2 gap-4 lg:grid-cols-5">
+		<StatCard label="Aktiver" value={stats.assetCount} hint={`${stats.assetsExpiringSoon} udløber snart`} tone={stats.assetsExpiringSoon > 0 ? 'warn' : 'accent'} />
+		<StatCard label="Tjenester oppe" value={`${stats.monitorsUp}/${stats.monitorsTotal}`} hint={stats.monitorsDown > 0 ? `${stats.monitorsDown} nede` : 'alt kører'} tone={stats.monitorsDown > 0 ? 'danger' : 'success'} />
+		<StatCard label="Åbne hændelser" value={stats.openIncidents} hint={stats.criticalIncidents > 0 ? `${stats.criticalIncidents} kritiske` : 'ingen kritiske'} tone={stats.criticalIncidents > 0 ? 'danger' : stats.openIncidents > 0 ? 'warn' : 'muted'} />
+		<StatCard label="Ukendte enheder" value={stats.devicesUnknown} hint={stats.devicesUnknown > 0 ? 'kræver godkendelse' : 'alle kendte'} tone={stats.devicesUnknown > 0 ? 'warn' : 'success'} />
+		<StatCard label="Noter" value={stats.noteCount} hint="krypteret lokalt" tone="accent" />
+	</div>
+
+	<p class:list={['mt-3 text-xs', agentStale ? 'text-warn' : 'text-ink-muted']}>
+		{latestAgent
+			? `Agent ${latestAgent.name}: sidst set ${
+					agentAgeMin === null
+						? 'aldrig'
+						: agentAgeMin < 1
+							? 'lige nu'
+							: `for ${agentAgeMin} min. siden`
+				}${agentStale ? ' (tjek at Proxmox kører)' : ''}`
+			: 'Ingen agent tilsluttet endnu.'}
+	</p>
+
+	<div class="mt-6 grid gap-6 lg:grid-cols-3">
+		<div class="lg:col-span-2">
+			<Panel title="Uptime-status" subtitle="Seneste kendte tilstand pr. tjeneste">
+				<Fragment slot="actions">
+					<a href="/uptime" class="btn btn-secondary">Administrer</a>
+				</Fragment>
+				{monitors.length === 0 ? (
+					<EmptyState title="Ingen tjenester endnu" text="Tilføj dit første endpoint under Uptime for at overvåge det herfra." />
+				) : (
+					<div class="overflow-hidden rounded-sm border border-line">
+						<table class="w-full text-sm">
+							<thead>
+								<tr class="bg-elevated text-left text-[11px] uppercase tracking-wide text-ink-muted">
+									<th class="px-4 py-2 font-medium">Navn</th>
+									<th class="px-4 py-2 font-medium">Endpoint</th>
+									<th class="px-4 py-2 font-medium">Status</th>
+									<th class="px-4 py-2 text-right font-medium">Latens</th>
+								</tr>
+							</thead>
+							<tbody>
+								{monitors.slice(0, 8).map((m) => (
+									<tr class="border-t border-line hover:bg-canvas">
+										<td class="px-4 py-2.5 text-ink">{m.name}</td>
+										<td class="px-4 py-2.5 font-mono text-xs text-ink-soft">{m.url}</td>
+										<td class="px-4 py-2.5">
+											<StatusBadge tone={STATUS_TONE[m.lastStatus]} label={m.lastStatus} />
+										</td>
+										<td class="px-4 py-2.5 text-right font-mono text-xs text-ink-soft">
+											{m.lastLatencyMs !== null ? `${m.lastLatencyMs} ms` : '—'}
+										</td>
+									</tr>
+								))}
+							</tbody>
+						</table>
+					</div>
+				)}
+			</Panel>
+		</div>
+
+		<div class="space-y-6">
+			<Panel title="Aktive hændelser">
+				{activeIncidents.length === 0 ? (
+					<p class="py-4 text-center text-sm text-ink-muted">Ingen åbne hændelser. Roligt.</p>
+				) : (
+					<ul class="space-y-3">
+						{activeIncidents.map((i) => (
+							<li class="flex items-start justify-between gap-3">
+								<div class="min-w-0">
+									<p class="truncate text-sm text-ink">{i.title}</p>
+									<p class="text-xs text-ink-muted">{new Date(i.createdAt).toLocaleDateString('da-DK')}</p>
+								</div>
+								<StatusBadge tone={SEVERITY_TONE[i.severity]} label={i.severity} dot={false} />
+							</li>
+						))}
+					</ul>
+				)}
+			</Panel>
+
+			<Panel title="Udløber snart">
+				{expiring.length === 0 ? (
+					<p class="py-4 text-center text-sm text-ink-muted">Ingen aktiver udløber inden for 30 dage.</p>
+				) : (
+					<ul class="space-y-3">
+						{expiring.map((a) => {
+							const d = daysUntil(a.expiresAt);
+							return (
+								<li class="flex items-start justify-between gap-3">
+									<div class="min-w-0">
+										<p class="truncate text-sm text-ink">{a.name}</p>
+										<p class="font-mono text-xs text-ink-muted">{a.identifier}</p>
+									</div>
+									<StatusBadge
+										tone={d !== null && d < 0 ? 'danger' : 'warn'}
+										label={d !== null && d < 0 ? 'udløbet' : `${d} dage`}
+										dot={false}
+									/>
+								</li>
+							);
+						})}
+					</ul>
+				)}
+			</Panel>
+		</div>
+	</div>
+</Shell>

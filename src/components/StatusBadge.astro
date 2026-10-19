@@ -1,0 +1,25 @@
+---
+interface Props {
+	tone?: 'success' | 'warn' | 'danger' | 'accent' | 'muted';
+	label: string;
+	dot?: boolean;
+}
+const { tone = 'muted', label, dot = true } = Astro.props;
+
+const TONES: Record<string, { text: string; bg: string; border: string }> = {
+	success: { text: '#34d399', bg: 'rgba(52,211,153,0.12)', border: 'rgba(52,211,153,0.4)' },
+	warn: { text: '#fbbf24', bg: 'rgba(251,191,36,0.12)', border: 'rgba(251,191,36,0.4)' },
+	danger: { text: '#f87171', bg: 'rgba(248,113,113,0.12)', border: 'rgba(248,113,113,0.4)' },
+	accent: { text: '#2dd4bf', bg: 'rgba(45,212,191,0.12)', border: 'rgba(45,212,191,0.4)' },
+	muted: { text: '#9fb0c3', bg: 'rgba(159,176,195,0.1)', border: 'rgba(159,176,195,0.3)' },
+};
+const c = TONES[tone];
+---
+
+<span
+	class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-wide"
+	style={`color:${c.text};background:${c.bg};border:1px solid ${c.border}`}
+>
+	{dot && <span class="inline-block h-1.5 w-1.5 rounded-full" style={`background:${c.text}`}></span>}
+	{label}
+</span>

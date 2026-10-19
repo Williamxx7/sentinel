@@ -1,0 +1,6 @@
+# Lokale dev-værdier (kopiér til .dev.vars og tilpas).
+# .dev.vars overstyrer "vars" i wrangler.jsonc under `npm run dev`.
+#
+# I produktion står ALLOW_BOOTSTRAP på "false" (sitet er låst til din bruger).
+# Lokalt kan du slå den til, så du kan oprette en konto efter en nulstilling:
+ALLOW_BOOTSTRAP="true"

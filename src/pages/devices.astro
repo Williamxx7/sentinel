@@ -1,0 +1,165 @@
+---
+import Shell from '../layouts/Shell.astro';
+import Panel from '../components/Panel.astro';
+import StatusBadge from '../components/StatusBadge.astro';
+import EmptyState from '../components/EmptyState.astro';
+import { listDevices } from '../server/repo';
+
+export const prerender = false;
+
+const allDevices = await listDevices();
+const unknown = allDevices.filter((d) => d.status === 'unknown').length;
+const known = allDevices.filter((d) => d.status === 'known').length;
+
+const q = (Astro.url.searchParams.get('q') ?? '').trim().toLowerCase();
+const statusFilter = Astro.url.searchParams.get('status') ?? '';
+const devices = allDevices.filter((d) => {
+	if (statusFilter && d.status !== statusFilter) return false;
+	if (q) {
+		const haystack = `${d.mac} ${d.ip ?? ''} ${d.hostname ?? ''} ${d.vendor ?? ''} ${d.services
+			.map((s) => `${s.name ?? ''} ${s.product ?? ''}`)
+			.join(' ')}`.toLowerCase();
+		if (!haystack.includes(q)) return false;
+	}
+	return true;
+});
+const filtered = Boolean(q || statusFilter);
+
+const STATUS_TONE: Record<string, 'success' | 'warn' | 'muted'> = {
+	known: 'success',
+	unknown: 'warn',
+	ignored: 'muted',
+};
+const STATUS_LABEL: Record<string, string> = {
+	known: 'Godkendt',
+	unknown: 'Ukendt',
+	ignored: 'Ignoreret',
+};
+---
+
+<Shell title="Enheder" active="devices">
+	<div class="grid grid-cols-3 gap-4">
+		<div class="rounded-md border border-line bg-surface p-5">
+			<p class="text-[11px] font-medium uppercase tracking-wide text-ink-muted">Enheder i alt</p>
+			<p class="mt-1 font-mono text-[28px] font-semibold leading-none text-ink">{devices.length}</p>
+		</div>
+		<div class="rounded-md border border-line bg-surface p-5">
+			<p class="text-[11px] font-medium uppercase tracking-wide text-ink-muted">Ukendte</p>
+			<p class="mt-1 font-mono text-[28px] font-semibold leading-none" style={unknown > 0 ? 'color:#fbbf24' : ''}>{unknown}</p>
+		</div>
+		<div class="rounded-md border border-line bg-surface p-5">
+			<p class="text-[11px] font-medium uppercase tracking-wide text-ink-muted">Godkendte</p>
+			<p class="mt-1 font-mono text-[28px] font-semibold leading-none" style="color:#34d399">{known}</p>
+		</div>
+	</div>
+
+	<div class="mt-6">
+		<Panel title="Enheder på netværket" subtitle="Fundet af lokale agenter. Ukendte enheder opretter en hændelse.">
+			<form method="get" class="mb-4 flex flex-wrap items-end gap-2">
+				<div class="grow">
+					<label class="mb-1 block text-xs text-ink-soft" for="q">Søg</label>
+					<input id="q" name="q" value={q} class="field" placeholder="IP, MAC, navn, producent" />
+				</div>
+				<div>
+					<label class="mb-1 block text-xs text-ink-soft" for="f-status">Status</label>
+					<select id="f-status" name="status" class="field">
+						<option value="">Alle</option>
+						<option value="unknown" selected={statusFilter === 'unknown'}>Ukendt</option>
+						<option value="known" selected={statusFilter === 'known'}>Godkendt</option>
+						<option value="ignored" selected={statusFilter === 'ignored'}>Ignoreret</option>
+					</select>
+				</div>
+				<button class="btn btn-secondary">Filtrer</button>
+				{filtered && <a href="/devices" class="btn btn-secondary">Nulstil</a>}
+			</form>
+			{filtered && (
+				<p class="mb-3 text-xs text-ink-muted">Viser {devices.length} af {allDevices.length} enheder.</p>
+			)}
+			{devices.length === 0 ? (
+				<EmptyState
+					title="Ingen enheder endnu"
+					text="Tilslut en agent under Indstillinger. Når den uploader sit første scan, vises enhederne her."
+				/>
+			) : (
+				<div class="overflow-x-auto rounded-sm border border-line">
+					<table class="w-full text-sm">
+						<thead>
+							<tr class="bg-elevated text-left text-[11px] uppercase tracking-wide text-ink-muted">
+								<th class="px-4 py-2 font-medium">Status</th>
+								<th class="px-4 py-2 font-medium">IP</th>
+								<th class="px-4 py-2 font-medium">MAC</th>
+								<th class="px-4 py-2 font-medium">Navn</th>
+								<th class="px-4 py-2 font-medium">Åbne porte</th>
+								<th class="px-4 py-2 font-medium">Sidst set</th>
+								<th class="px-4 py-2"></th>
+							</tr>
+						</thead>
+						<tbody>
+							{devices.map((d) => (
+								<tr class="border-t border-line hover:bg-canvas">
+									<td class="px-4 py-2.5">
+										<StatusBadge tone={STATUS_TONE[d.status]} label={STATUS_LABEL[d.status]} />
+									</td>
+									<td class="px-4 py-2.5 font-mono text-xs text-ink-soft">{d.ip ?? '—'}</td>
+									<td class="px-4 py-2.5 font-mono text-xs text-ink-soft">{d.mac}</td>
+									<td class="px-4 py-2.5 text-ink">
+										<div>{d.hostname ?? '—'}</div>
+										{d.vendor && <div class="text-xs text-ink-muted">{d.vendor}</div>}
+									</td>
+									<td class="px-4 py-2.5">
+										<div class="flex flex-wrap gap-1">
+											{d.openPorts.length === 0 ? (
+												<span class="text-ink-muted">—</span>
+											) : (
+												d.openPorts.map((p) => (
+													<span class="rounded-full border border-line px-2 py-0.5 font-mono text-[11px] text-ink-muted">{p}</span>
+												))
+											)}
+										</div>
+										{d.services.length > 0 && (
+											<div class="mt-1 font-mono text-[11px] text-ink-muted">
+												{d.services
+													.map((s) => `${s.port}${s.name ? `/${s.name}` : ''}${s.version ? ` ${s.version}` : ''}`)
+													.join(', ')}
+											</div>
+										)}
+									</td>
+									<td class="px-4 py-2.5 font-mono text-xs text-ink-muted">
+										{new Date(d.lastSeen).toLocaleString('da-DK')}
+									</td>
+									<td class="px-4 py-2.5 text-right">
+										<div class="flex items-center justify-end gap-2">
+											<form method="post" action="/api/devices/update">
+												<input type="hidden" name="id" value={d.id} />
+												<input type="hidden" name="status" value={d.status === 'known' ? 'unknown' : 'known'} />
+												<button class="btn btn-secondary h-7 px-2 text-xs">
+													{d.status === 'known' ? 'Fortryd' : 'Godkend'}
+												</button>
+											</form>
+											<form method="post" action="/api/devices/baseline">
+												<input type="hidden" name="id" value={d.id} />
+												<input type="hidden" name="mode" value={d.acceptedBaseline ? 'clear' : 'accept'} />
+												<button class="btn btn-secondary h-7 px-2 text-xs">
+													{d.acceptedBaseline ? 'Nulstil baseline' : 'Accepter baseline'}
+												</button>
+											</form>
+											<form method="post" action="/api/devices/update">
+												<input type="hidden" name="id" value={d.id} />
+												<input type="hidden" name="status" value="ignored" />
+												<button class="btn btn-secondary h-7 px-2 text-xs">Ignorer</button>
+											</form>
+											<form method="post" action="/api/devices/delete">
+												<input type="hidden" name="id" value={d.id} />
+												<button class="btn btn-danger h-7 px-2 text-xs">Slet</button>
+											</form>
+										</div>
+									</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>
+			)}
+		</Panel>
+	</div>
+</Shell>

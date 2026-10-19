@@ -1,0 +1,25 @@
+---
+interface Props {
+	label: string;
+	value: string | number;
+	hint?: string;
+	tone?: 'accent' | 'success' | 'warn' | 'danger' | 'muted';
+}
+const { label, value, hint, tone = 'accent' } = Astro.props;
+const STRIPE: Record<string, string> = {
+	accent: '#2dd4bf',
+	success: '#34d399',
+	warn: '#fbbf24',
+	danger: '#f87171',
+	muted: '#33415a',
+};
+---
+
+<div class="overflow-hidden rounded-md border border-line bg-surface">
+	<div class="h-0.5 w-full" style={`background:${STRIPE[tone]}`}></div>
+	<div class="p-5">
+		<p class="text-[11px] font-medium uppercase tracking-wide text-ink-muted">{label}</p>
+		<p class="mt-1 font-mono text-[28px] font-semibold leading-none text-ink">{value}</p>
+		{hint && <p class="mt-2 text-xs text-ink-soft">{hint}</p>}
+	</div>
+</div>

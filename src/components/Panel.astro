@@ -1,0 +1,25 @@
+---
+interface Props {
+	title?: string;
+	subtitle?: string;
+	padded?: boolean;
+}
+const { title, subtitle, padded = true } = Astro.props;
+---
+
+<section class="rounded-md border border-line bg-surface">
+	{
+		title && (
+			<header class="flex items-center justify-between gap-4 border-b border-line px-5 py-4">
+				<div>
+					<h2 class="text-sm font-semibold text-ink">{title}</h2>
+					{subtitle && <p class="mt-0.5 text-xs text-ink-muted">{subtitle}</p>}
+				</div>
+				<slot name="actions" />
+			</header>
+		)
+	}
+	<div class={padded ? 'p-5' : ''}>
+		<slot />
+	</div>
+</section>
